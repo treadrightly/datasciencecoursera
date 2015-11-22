@@ -1,0 +1,117 @@
+---
+title: "Practical Machine Learning - Course Writeup"
+author: "One Dollar"
+date: "November 21, 2015"
+output: html_document
+---
+
+#Introduction
+
+This report analyzes the telemetry from devices like the _Jawbone Up_, _Nike FuelBand_ and _Fitbit_. The data for this report comes from <http://groupware.les.inf.puc-rio.br/har> - in the study, 6 participants were asked to perform barbell lifts correctly and incorrectly. 
+
+The data from the accelerometers on the belt, forearm, arm and dumbell was classified and is available for training at the following location: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>. 
+
+The test data for this report is available at the following location: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+#Loading data
+The data is initially loaded into two data structures - trainingOrig and testOrig.
+```{r cache=TRUE}
+library(RCurl, quietly=TRUE)
+trainingUrl = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainingContent = getURL(trainingUrl)
+testContent = getURL(testUrl)
+trainingOrig = read.csv(textConnection(trainingContent), strip.white=TRUE, stringsAsFactors=FALSE)
+testOrig = read.csv(textConnection(testContent), strip.white=TRUE, stringsAsFactors=FALSE)
+```
+
+#Cleaning data
+A quick look at the data reveals that a lot of columns are empty, null or NAs. We remove these columns as well as any columns related to time, since our analysis is not w.r.t windows but is a classification of the data at a given instant.
+```{r cache=TRUE}
+dropColumnIndices = function(data) 
+{
+  droppedColIndices = numeric()
+  numColumns = dim(data)[2]
+  for (i in 1:numColumns)
+  {
+    numNulls = sum(is.null(data[,i]))
+    numNas = sum(is.na(data[,i]))
+    numEmpty = sum(data[,i] == "")
+    if (numNulls > 0 || numNas > 0 || numEmpty > 0)
+    {
+      droppedColIndices = c(droppedColIndices, i)
+    }
+  }
+  droppedColIndices = c(droppedColIndices, 1) #X
+  droppedColIndices = c(droppedColIndices, 2) #user_name
+  droppedColIndices = c(droppedColIndices, 3) #raw_timestamp_part_1
+  droppedColIndices = c(droppedColIndices, 4) #raw_timestamp_part_2
+  droppedColIndices = c(droppedColIndices, 5) #cvtd_timestamp
+  droppedColIndices = c(droppedColIndices, 6) #new_window
+  droppedColIndices = c(droppedColIndices, 7) #num_window
+  
+  return (droppedColIndices)
+}
+dropColumns = dropColumnIndices(trainingOrig)
+print(paste("Number of dropped columns = ", length(dropColumns)))
+training = trainingOrig[,-dropColumns]
+test = testOrig[, -dropColumns]
+```
+
+#Training and model creation
+We start by splitting the clean training data into two sets - 60% to be used for training and 40% to be used for testing. A model is trained using all the predictors and this model is evaluated over the test set. The original test set (test after cleaning) is kept for cross validation and will not be used before the model is finalized.
+
+```{r cache=TRUE}
+splitVector = sample(1:dim(training)[1], 0.6 * dim(training)[1])
+training2 = training[splitVector,]
+test2 = training[-splitVector,]
+library(randomForest, quietly=TRUE)
+model = randomForest(factor(classe) ~ ., data=training2, importance=TRUE)
+res = predict(model, test2)
+res_prob = predict(model,test2, type="prob")
+library(caret, quietly=TRUE)
+confusionMatrix(res, test2$classe)
+```
+
+As seen from the confusion matrix, this model has high accuracy. However, this model has a lot of predictors, let us see if we can simplify it without any appreciable loss in accuracy.
+
+```{r cache=TRUE}
+varImpPlot(model)
+```
+
+From the bends in the plot, we see that the variables that cause the highest decrease in accuracy and play the greatest role are: yaw_belt, roll_belt, magnet_dumbbell_z, pitch_belt, magnet_dumbbell_y, pitch_forearm, roll_arm, roll_forearm, magnet_dumbbell_x. Now, let us check the correlation between these to ensure that we do not have repeated or similar measurements.
+
+```{r cache=TRUE}
+correlation = cor(training2[,c("yaw_belt", "roll_belt", "magnet_dumbbell_z", "pitch_belt", "magnet_dumbbell_y", "pitch_forearm", "roll_arm", "roll_forearm", "magnet_dumbbell_x")])
+diag(correlation) <- 0
+which(abs(correlation)>0.75, arr.ind=TRUE)
+correlation[which(abs(correlation)>0.75, arr.ind=TRUE)]
+```
+
+As seen above, roll_belt and yaw_belt are highly correlated, as are magnet_dumbbell_x and magnet_dumbbell_y. Let us retrain the model after keeping just the most important, uncorrelated predictors.
+
+```{r cache=TRUE}
+training2 = training2[, c("classe", "yaw_belt", "magnet_dumbbell_z", "pitch_belt", "magnet_dumbbell_y", "pitch_forearm", "roll_arm", "roll_forearm")]
+test2 = test2[, c("classe", "yaw_belt", "magnet_dumbbell_z", "pitch_belt", "magnet_dumbbell_y", "pitch_forearm", "roll_arm", "roll_forearm")]
+library(randomForest, quietly=TRUE)
+model = randomForest(factor(classe) ~ ., data=training2)
+res = predict(model, test2)
+library(caret, quietly=TRUE)
+confusionMatrix(res, test2$classe)
+```
+
+As seen from the test set, the model accuracy is at 98.88%.
+
+# Estimating out of sample error
+R's randomForest model provides an easy way to estimate the out of sample error - printing the model provides us with an estimate of the out of sample error.
+```{r cache=TRUE}
+print(model)
+```
+As seen above, the OOB or out of sample error is estimated to be 1.59%.
+
+# Evaluating the test set
+The original test set (test) was kept aside as a cross validation set. The results of evaluating the test set against the model trained so far are as follows:
+```{r cache=TRUE}
+res = predict(model, test)
+res
+```
