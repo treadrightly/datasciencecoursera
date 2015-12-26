@@ -8,6 +8,7 @@ shinyServer(function(input, output) {
     cat("2. Confidence level: Vary this parameter to alter the confidence level of the forecast.\n")
     cat("3. Width of output graph: Vary this parameter to modify the width of the output graph.\n")
     cat("4. Height of output graph: Vary this parameter to modify the height of the output graph.\n")
+    cat("\nClick the Submit button to see the graph updated according to the input parameter values.\n")
   })
   
   output$myImage <- renderImage({
