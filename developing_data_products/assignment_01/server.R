@@ -36,7 +36,7 @@ shinyServer(function(input, output) {
       contentType = 'image/png',
       width = width,
       height = height,
-      alt = "This is alternate text"
+      alt = "Forecast graph"
     )
   }, deleteFile = TRUE)
 })
